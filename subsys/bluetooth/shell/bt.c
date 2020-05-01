@@ -1217,6 +1217,114 @@ static int cmd_adv_info(const struct shell *shell, size_t argc, char *argv[])
 
 	return 0;
 }
+
+#if defined(CONFIG_BT_PER_ADV)
+static int cmd_per_adv(const struct shell *shell, size_t argc, char *argv[])
+{
+	struct bt_le_ext_adv *adv = adv_sets[selected_adv];
+
+	if (!adv) {
+		return -EINVAL;
+	}
+
+	if (!strcmp(argv[1], "off")) {
+		if (bt_le_per_adv_enable(adv, false) < 0) {
+			shell_error(shell,
+				    "Failed to stop periodic advertising");
+			return -ENOEXEC;
+		} else {
+			shell_print(shell, "Periodic advertising stopped");
+		}
+
+		return 0;
+	} else if (!strcmp(argv[1], "on")) {
+		if (bt_le_per_adv_enable(adv, true) < 0) {
+			shell_error(shell,
+				    "Failed to start periodic advertising");
+			return -ENOEXEC;
+		} else {
+			shell_print(shell, "Periodic advertising started");
+		}
+
+		return 0;
+	} else {
+		return -EINVAL;
+	}
+}
+
+static int cmd_per_adv_param(const struct shell *shell, size_t argc,
+			     char *argv[])
+{
+	struct bt_le_ext_adv *adv = adv_sets[selected_adv];
+	struct bt_le_per_adv_param param;
+	int err;
+
+	if (!adv) {
+		return -EINVAL;
+	}
+
+	if (argc > 1) {
+		param.interval_min = strtol(argv[1], NULL, 10);
+	} else {
+		param.interval_min = BT_GAP_ADV_SLOW_INT_MIN;
+	}
+
+	if (argc > 2) {
+		param.interval_max = strtol(argv[2], NULL, 10);
+	} else {
+		param.interval_max = param.interval_min * 1.2;
+
+	}
+
+	if (param.interval_min > param.interval_max) {
+		return -EINVAL;
+	}
+
+	if (argc > 3 && !strcmp(argv[3], "tx-power")) {
+		param.options = BT_LE_ADV_OPT_USE_TX_POWER;
+	} else {
+		param.options = 0;
+	}
+
+	err = bt_le_per_adv_set_param(adv, &param);
+	if (err) {
+		shell_error(shell, "Failed to set periodic advertisement "
+			    "parameters (%d)", err);
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+
+static int cmd_per_adv_data(const struct shell *shell, size_t argc,
+			    char *argv[])
+{
+	struct bt_le_ext_adv *adv = adv_sets[selected_adv];
+	static u8_t ad[256];
+	u8_t ad_len = 0;
+	int err;
+
+	if (!adv) {
+		return -EINVAL;
+	}
+
+	ad_len = hex2bin(argv[1], strlen(argv[1]), ad, sizeof(ad));
+
+	if (!ad_len) {
+		return -ENOEXEC;
+	}
+
+	err = bt_le_per_adv_set_data(adv, ad, ad_len);
+	if (err) {
+		shell_print(shell,
+			    "Failed to set periodic advertising data (%d)",
+			    err);
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_BT_PER_ADV */
 #endif /* CONFIG_BT_EXT_ADV */
 #endif /* CONFIG_BT_BROADCASTER */
 
@@ -2411,6 +2519,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 	SHELL_CMD_ARG(adv-select, NULL, "[adv]", cmd_adv_select, 1, 1),
 	SHELL_CMD_ARG(adv-oob, NULL, HELP_NONE, cmd_adv_oob, 1, 0),
 	SHELL_CMD_ARG(adv-info, NULL, HELP_NONE, cmd_adv_info, 1, 0),
+#if defined(CONFIG_BT_PER_ADV)
+	SHELL_CMD_ARG(per-adv, NULL, "<type: off, on>", cmd_per_adv, 2, 0),
+	SHELL_CMD_ARG(per-adv-param, NULL, "[<interval-min>] [<interval-max>] [tx_power]", cmd_per_adv_param, 1, 3),
+	SHELL_CMD_ARG(per-adv-data, NULL, "<data>", cmd_per_adv_data, 2, 0),
+#endif
 #endif
 #endif /* CONFIG_BT_BROADCASTER */
 #if defined(CONFIG_BT_CONN)

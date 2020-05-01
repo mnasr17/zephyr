@@ -499,6 +499,17 @@ struct bt_le_adv_param {
 	const bt_addr_le_t *peer;
 };
 
+struct bt_le_per_adv_param {
+	/** Minimum Periodic Advertising Interval (N * 1.25ms) */
+	u16_t interval_min;
+
+	/** Maximum Periodic Advertising Interval (N * 1.25ms) */
+	u16_t interval_max;
+
+	/** Bit-field of periodic advertising options */
+	u32_t options;
+};
+
 /** @brief Initialize advertising parameters
  *
  *  @param _options   Advertising Options
@@ -557,6 +568,23 @@ struct bt_le_adv_param {
 #define BT_LE_ADV_NCONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_NAME, \
 					     BT_GAP_ADV_FAST_INT_MIN_2, \
 					     BT_GAP_ADV_FAST_INT_MAX_2, NULL)
+
+/** Helper to declare periodic advertising parameters inline
+ *
+ *  @param _int_min	Minimum periodic advertising interval
+ *  @param _int_max	Maximum periodic advertising interval
+ *  @param _options	Periodic advertising properties bitfield.
+ */
+#define BT_LE_PER_ADV_PARAM(_int_min, _int_max, _options) \
+		((struct bt_le_per_adv_param[]) { { \
+			.interval_min = (_int_min), \
+			.interval_max = (_int_max), \
+			.options = (_options), \
+		 } })
+
+#define BT_LE_PER_ADV_DEFAULT BT_LE_PER_ADV_PARAM(BT_GAP_ADV_SLOW_INT_MIN, \
+						  BT_GAP_ADV_SLOW_INT_MAX, \
+						  NULL)
 
 /** @brief Start advertising
  *
@@ -772,6 +800,51 @@ int bt_le_ext_adv_get_info(const struct bt_le_ext_adv *adv,
  *  @param adv_type Type of advertising response from advertiser.
  *  @param buf Buffer containing advertiser data.
  */
+
+/**
+ * @brief Set or update the periodic advertisement parameters.
+ *
+ * The periodic advertisement parameters can only be set or updated on an
+ * extended advertisement set which is neither scannable, connectable or
+ * anonymous.
+ *
+ * @param adv	Advertising set object.
+ * @param param	Advertising parameters.
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_param(struct bt_le_ext_adv *adv,
+			    const struct bt_le_per_adv_param *param);
+
+/**
+ * @brief Set or update the periodic advertisement data.
+ *
+ * The periodic advertisement data can only be set or updated on an
+ * extended advertisement set which is neither scannable, connectable or
+ * anonymous.
+ *
+ * @param adv		Advertising set object.
+ * @param data		Advertising data.
+ * @param data_len	Advertising data length.
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_data(const struct bt_le_ext_adv *adv, const u8_t *data,
+			   u8_t data_len);
+
+/**
+ * @brief Enables or disables periodic advertisement.
+ *
+ * Enabling the periodic advertisement can be done independently of extended
+ * advertisement, but both periodic advertisement and extended advertisement
+ * shall be enabled before any data is sent.
+ * Enabling the periodic advertisement while it is already
+ * enabled updates the random address.
+ *
+ * @param adv		Advertising set object.
+ * @param enable	Whether to enable or disable periodic advertisement.
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_enable(struct bt_le_ext_adv *adv, bool enable);
+
 typedef void bt_le_scan_cb_t(const bt_addr_le_t *addr, s8_t rssi,
 			     u8_t adv_type, struct net_buf_simple *buf);
 

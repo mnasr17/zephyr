@@ -7118,6 +7118,123 @@ bool bt_addr_le_is_bonded(u8_t id, const bt_addr_le_t *addr)
 	}
 }
 
+int bt_le_per_adv_set_param(struct bt_le_ext_adv *adv,
+			    const struct bt_le_per_adv_param *param)
+{
+	struct bt_hci_cp_le_set_per_adv_param *cp;
+	struct net_buf *buf;
+	int err;
+
+	if (!atomic_test_bit(adv->flags, BT_ADV_PARAMS_SET)) {
+		/* Adv set not created in the controller */
+		return -EINVAL;
+	} else if (atomic_test_bit(adv->flags, BT_ADV_SCANNABLE)) {
+		return -EINVAL;
+	} else if (atomic_test_bit(adv->flags, BT_ADV_CONNECTABLE)) {
+		return -EINVAL;
+	} else if (atomic_test_bit(adv->flags, BT_ADV_LEGACY)) {
+		return -EINVAL;
+	}
+
+	/* TODO: What if you change the ext_adv_params to e.g. connectable after
+	 * setting the per_adv_params?
+	 */
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PER_ADV_PARAM, sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->handle = adv->handle;
+	cp->min_interval = param->interval_min;
+	cp->max_interval = param->interval_max;
+
+	if (param->options & BT_LE_ADV_OPT_USE_TX_POWER) {
+		cp->props |= BT_HCI_LE_ADV_PROP_TX_POWER;
+	}
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_PER_ADV_PARAM, buf, NULL);
+	if (err) {
+		return err;
+	}
+
+	atomic_set_bit(adv->flags, BT_PER_ADV_PARAMS_SET);
+
+	return 0;
+}
+
+int bt_le_per_adv_set_data(const struct bt_le_ext_adv *adv, const u8_t *data,
+			   u8_t data_len)
+{
+	struct bt_hci_cp_le_set_per_adv_data *cp;
+	struct net_buf *buf;
+	int err;
+
+	if (!atomic_test_bit(adv->flags, BT_PER_ADV_PARAMS_SET)) {
+		return -EINVAL;
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PER_ADV_DATA, sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->handle = adv->handle;
+	/* TODO: If data is longer than what the controller can manage,
+	 * split the data. Read size from controller on boot.
+	 */
+	cp->op = BT_HCI_LE_EXT_ADV_OP_COMPLETE_DATA;
+	cp->len = data_len;
+	memcpy(cp->data, data, data_len);
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_PER_ADV_DATA, buf, NULL);
+	if (err) {
+		return err;
+	}
+	return 0;
+}
+
+int bt_le_per_adv_enable(struct bt_le_ext_adv *adv, bool enable)
+{
+	struct bt_hci_cp_le_set_per_adv_enable *cp;
+	struct net_buf *buf;
+	int err;
+
+	/* TODO: We could setup some default ext adv params if not already set*/
+	if (!atomic_test_bit(adv->flags, BT_PER_ADV_PARAMS_SET)) {
+		return -EINVAL;
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PER_ADV_ENABLE, sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->handle = adv->handle;
+	cp->enable = enable ? 1 : 0;
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_PER_ADV_ENABLE, buf, NULL);
+	if (err) {
+		return err;
+	}
+
+	if (enable) {
+		atomic_set_bit(adv->flags, BT_PER_ADV_ENABLED);
+	} else {
+		atomic_clear_bit(adv->flags, BT_PER_ADV_ENABLED);
+	}
+	return 0;
+}
+
 static bool valid_adv_ext_param(const struct bt_le_adv_param *param)
 {
 	if (IS_ENABLED(CONFIG_BT_EXT_ADV) &&
@@ -7704,6 +7821,12 @@ static int le_ext_adv_param_set(struct bt_le_ext_adv *adv,
 
 	atomic_set_bit_to(adv->flags, BT_ADV_USE_IDENTITY,
 			  param->options & BT_LE_ADV_OPT_USE_IDENTITY);
+
+	atomic_set_bit_to(adv->flags, BT_ADV_LEGACY,
+			  !(param->options & BT_LE_ADV_OPT_EXT_ADV));
+
+	atomic_set_bit_to(adv->flags, BT_ADV_SCANNABLE,
+			  param->options & BT_LE_ADV_OPT_SCANNABLE);
 
 	return 0;
 }

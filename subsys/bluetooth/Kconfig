@@ -131,6 +131,11 @@ config BT_EXT_ADV_MAX_ADV_SET
 	  Maximum number of simultaneous Bluetooth advertising sets
 	  supported.
 
+config BT_PER_ADV
+	bool "Periodic Advertising and Scanning support [EXPERIMENTAL]"
+	help
+	  Select this to enable Periodic Advertising API support..
+
 endif # BT_EXT_ADV
 
 menu "Observer"

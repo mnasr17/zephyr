@@ -944,6 +944,13 @@ struct bt_le_scan_recv_info {
 	/** Advertising packet properties. */
 	u16_t adv_props;
 
+	/**
+	 * @brief Periodic advertising interval.
+	 *
+	 * If 0 there is no periodic advertisement.
+	 */
+	u16_t interval;
+
 	/** Primary advertising channel PHY. */
 	u8_t primary_phy;
 

@@ -48,6 +48,9 @@ extern "C" {
 /** Opaque type representing an advertiser. */
 struct bt_le_ext_adv;
 
+/** Opaque type representing an periodic advertisement sync. */
+struct bt_le_per_adv_sync;
+
 /* Don't require everyone to include conn.h */
 struct bt_conn;
 
@@ -841,6 +844,158 @@ int bt_le_per_adv_set_data(const struct bt_le_ext_adv *adv, const u8_t *data,
  * @return Zero on success or (negative) error code otherwise.
  */
 int bt_le_per_adv_enable(struct bt_le_ext_adv *adv, bool enable);
+
+struct bt_le_per_adv_sync_synced_info {
+	/** Periodic advertisement interval (N * 1.25MS) */
+	u16_t interval;
+
+	/** Periodic advertisement advertiser clock accuracy (ppm) */
+	u16_t clock_accuracy;
+
+	/** Advertiser PHY */
+	u8_t phy;
+};
+
+struct bt_le_per_adv_sync_recv_info {
+	/** The TX power of the advertisement. */
+	u8_t tx_power;
+
+	/** The RSSI of the advertisement excluding any CTE. */
+	u8_t rssi;
+
+	/** The Constant Tone Extension (CTE) of the advertisement */
+	u8_t cte;
+};
+
+struct bt_le_per_adv_sync_cb {
+	/** @brief The periodic advertising has been successfully been synced.
+	 *
+	 *  This callback notifies the application that the periodic advertising
+	 *  set has been succesfully been synced, and will now start to
+	 *  receive periodic advertisement reports.
+	 *
+	 *  @param adv	The periodic advertising sync object.
+	 *  @param info	Information about the sync event.
+	 */
+	void (*synced)(struct bt_le_per_adv_sync *sync,
+		       struct bt_le_per_adv_sync_synced_info *info);
+
+	/** @brief The periodic advertising sync has been terminated.
+	 *
+	 *  This callback notifies the application that the periodic advertising
+	 *  sync has been terminated, either by local request, remote request or
+	 *  because due to missing data (e.g. by being out of range or sync).
+	 *
+	 *  @param adv	The periodic advertising sync object.
+	 */
+	void (*terminated)(struct bt_le_per_adv_sync *sync);
+
+	/** @brief Periodic advertisement data received.
+	 *
+	 *  This callback notifies the application of an periodic advertisement
+	 *  report.
+	 *
+	 *  @param adv	The advertising set object.
+	 *  @param buf	Information about the periodic advertisement event.
+	 *  @param buf	Buffer containing the periodic advertisement data.
+	 */
+	void (*recv)(struct bt_le_per_adv_sync *sync,
+		     const struct bt_le_per_adv_sync_recv_info *info,
+		     struct net_buf_simple *buf);
+};
+
+/** Periodic advertisement sync options */
+enum {
+	/** Convenience value when no options are specified. */
+	BT_LE_PER_SYNC_OPT_NONE = 0,
+
+	/** Use the periodic advertisement list to sync with advertiser */
+	LE_PER_SYNC_OPT_USE_PER_ADV_LIST = BIT(0),
+
+	/** @brief Disables periodic advertisement reports
+	 *
+	 * No advertisement reports will be handled until enabled.
+	 */
+	/* TODO: LE_PER_SYNC_OPT_REPORTING_INITIALLY_DISABLED = BIT(1); */
+
+	/** Sync with Angle of Arrival (AoA) constant tone extension */
+	LE_PER_SYNC_OPT_DONT_SYNC_AOA = BIT(2),
+
+	/** Sync with Angle of Departure (AoD) 1us constant tone extension */
+	LE_PER_SYNC_OPT_DONT_SYNC_AOD_1US = BIT(3),
+
+	/** Sync with Angle of Departure (AoD) 2us constant tone extension */
+	LE_PER_SYNC_OPT_DONT_SYNC_AOD_2US = BIT(4),
+
+	/** Do not sync to packets without a constant tone extension */
+	LE_PER_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT = BIT(5),
+};
+
+struct bt_le_per_adv_sync_param {
+	/** Periodic Advertiser Address */
+	bt_addr_le_t addr;
+
+	/** Bit-field of periodic advertisement sync options. */
+	u32_t options;
+
+	/** Advertiser SID */
+	u16_t sid;
+
+	/** @brief Maximum event skip
+	 *
+	 * Maximum number of periodic advertisement events that can be
+	 * skipped after a successful receive
+	 */
+	u16_t skip;
+
+	/** @brief Synchronization timeout (N * 10 MS)
+	 *
+	 * Synchronization timeout for the periodic advertising train.
+	 * Range 0x000A to 0x4000 (100ms to 163840ms)
+	 */
+	u16_t timeout;
+};
+
+/** @brief Get array index of an periodic advertising sync object.
+ *
+ *  This function is get the index of an array of periodic advertising sync
+ *  objects. The array has CONFIG_BT_PER_ADV_SYNC_MAX elements.
+ *
+ *  @param per_adv_sync	The periodic advertising sync object.
+ *
+ *  @return Index of the periodic advertising sync object.
+ *  The range of the returned value is 0..CONFIG_BT_PER_ADV_SYNC_MAX-1
+ */
+u8_t bt_le_per_adv_sync_get_index(struct bt_le_per_adv_sync *per_adv_sync);
+
+/**
+ * @brief Create a periodic advertisement sync object.
+ *
+ * Create a periodic advertisement sync object that can try to synchronize
+ * to periodic advertisements from an advertiser. Scan shall either be disabled
+ * or extended scan shall be enabled.
+ *
+ * @param param[in]	Periodic advertisement sync parameters.
+ * @param cb[in]	Periodic advertisement callbacks.
+ * @param out_sync[out]	Periodic advertisement sync object on.
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_create(const struct bt_le_per_adv_sync_param *param,
+			      const struct bt_le_per_adv_sync_cb *cb,
+			      struct bt_le_per_adv_sync **out_sync);
+
+/** @brief Delete periodic advertisement sync.
+ *
+ *  Delete a periodic advertisement sync object. Can be called regardless of the
+ *  state of the sync. If the syncing is currently syncing, the syncing is
+ *  cancelled. If the sync has been established, it is terminated. The 
+ *  periodic advertising sync object will be invalidated afterwards. 
+ *
+ *  @param per_adv_sync	The periodic advertising sync object.
+ *
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync);
 
 typedef void bt_le_scan_cb_t(const bt_addr_le_t *addr, s8_t rssi,
 			     u8_t adv_type, struct net_buf_simple *buf);

@@ -132,6 +132,40 @@ struct bt_le_ext_adv {
 #endif /* defined(CONFIG_BT_EXT_ADV) */
 };
 
+
+enum {
+	/* Periodic Advertising Sync has been created in the host. */
+	BT_PER_ADV_SYNC_CREATED,
+
+	/* Periodic advertisement is in sync and can be terminated */
+	BT_PER_ADV_SYNC_SYNCED,
+
+	BT_PER_ADV_SYNC_NUM_FLAGS,
+};
+
+struct bt_le_per_adv_sync {
+	/** Params used to establish sync */
+	struct bt_le_per_adv_sync_param params;
+
+	/** Sync handle */
+	u16_t handle;
+
+	/** Periodic advertisement interval (N * 1.25MS) */
+	u16_t interval;
+
+	/** Periodic advertisement advertiser clock accuracy (ppm) */
+	u16_t clock_accuracy;
+
+	/** Advertiser PHY */
+	u8_t phy;
+
+	/** Flags */
+	ATOMIC_DEFINE(flags, BT_PER_ADV_SYNC_NUM_FLAGS);
+
+	/** Callbacks */
+	const struct bt_le_per_adv_sync_cb *cb;
+};
+
 struct bt_dev_le {
 	/* LE features */
 	u8_t			features[8];

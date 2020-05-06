@@ -136,6 +136,21 @@ config BT_PER_ADV
 	help
 	  Select this to enable Periodic Advertising API support..
 
+config BT_PER_ADV_SYNC
+	bool "Periodic advertisement sync support [EXPERIMENTAL]"
+	depends on BT_OBSERVER
+	help
+	  Select this to enable Periodic Advertising Sync API support.
+
+if BT_PER_ADV_SYNC
+config BT_PER_ADV_SYNC_MAX
+	int "Maximumber number of simultaneous periodic advertisement syncs"
+	range 1 64
+	default 1
+	help
+	  Maximum number of simultaneous periodic advertising syncs supported.
+endif # BT_PER_ADV_SYNC
+
 endif # BT_EXT_ADV
 
 menu "Observer"

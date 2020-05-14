@@ -885,7 +885,7 @@ struct bt_le_per_adv_sync_cb {
 	/** @brief The periodic advertising has been successfully been synced.
 	 *
 	 *  This callback notifies the application that the periodic advertising
-	 *  set has been succesfully been synced, and will now start to
+	 *  set has been successfully been synced, and will now start to
 	 *  receive periodic advertisement reports.
 	 *
 	 *  @param adv	The periodic advertising sync object.

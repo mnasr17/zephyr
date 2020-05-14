@@ -4946,7 +4946,7 @@ static void le_per_adv_sync_established(struct net_buf *buf)
 
 	if (buf->len != sizeof(*evt)) {
 		BT_ERR("Unexpected event size: Was %u expected %u",
-		       buf->len, sizeof(*evt));
+		       buf->len, (u32_t)sizeof(*evt));
 		return;
 	}
 
@@ -4959,7 +4959,7 @@ static void le_per_adv_sync_established(struct net_buf *buf)
 	}
 
 	atomic_set_bit(syncing_per_adv_sync->flags, BT_PER_ADV_SYNC_SYNCED);
-	if (atomic_test_bit(syncing_per_adv_sync->flags, 
+	if (atomic_test_bit(syncing_per_adv_sync->flags,
 			    BT_PER_ADV_SYNC_SCAN_INITIATED)) {
 		int err = bt_le_scan_stop();
 
@@ -4994,14 +4994,15 @@ static void le_per_adv_sync_lost(struct net_buf *buf)
 	struct bt_le_per_adv_sync_term_info term_info;
 
 	if (buf->len != sizeof(*evt)) {
-		BT_ERR("Unexpected end of buffer");
+		BT_ERR("Unexpected event size: Was %u expected %u",
+		       buf->len, (u32_t)sizeof(*evt));
 		return;
 	}
 
 	per_adv_sync = get_per_adv_sync(evt->handle);
 
 	if (!per_adv_sync) {
-		BT_ERR("Unknown handle 0x%04Xfor periodic adv sync lost",
+		BT_ERR("Unknown handle 0x%04X for periodic adv sync lost",
 		       evt->handle);
 		return;
 	}
@@ -7485,14 +7486,14 @@ int bt_le_per_adv_sync_create(const struct bt_le_per_adv_sync_param *param,
 
 	syncing_per_adv_sync = per_adv_sync;
 
-	/* Syncing requires that scan is enabled. If the callee doesn't enable 
+	/* Syncing requires that scan is enabled. If the callee doesn't enable
 	 * scan first, we enable it here, and disable it once the sync has been
-	 * established. We don't need to use any callbacks since we rely on 
+	 * established. We don't need to use any callbacks since we rely on
 	 * the advertiser address in the sync params.
 	 */
 	if (!atomic_test_bit(bt_dev.flags, BT_DEV_SCANNING)) {
 		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE, NULL);
-		atomic_set_bit(per_adv_sync->flags, 
+		atomic_set_bit(per_adv_sync->flags,
 			       BT_PER_ADV_SYNC_SCAN_INITIATED);
 
 		if (err) {
@@ -7576,7 +7577,7 @@ int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync)
 		err = bt_le_per_adv_sync_terminate(per_adv_sync);
 	} else if (syncing_per_adv_sync == per_adv_sync) {
 		err = bt_le_per_adv_sync_create_cancel(per_adv_sync);
-	} 
+	}
 
 	if (err) {
 		return err;

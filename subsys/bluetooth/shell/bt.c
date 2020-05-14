@@ -1325,6 +1325,150 @@ static int cmd_per_adv_data(const struct shell *shell, size_t argc,
 	return 0;
 }
 #endif /* CONFIG_BT_PER_ADV */
+
+#if defined(CONFIG_BT_PER_ADV_SYNC)
+static struct bt_le_per_adv_sync *per_adv_sync;
+
+static void per_adv_sync_sync_cb(struct bt_le_per_adv_sync *sync,
+				 struct bt_le_per_adv_sync_synced_info *info)
+{
+	char le_addr[BT_ADDR_LE_STR_LEN];
+
+	if (per_adv_sync != sync) {
+		shell_error(ctx_shell, "Invalid per adv sync object");
+		return;
+	}
+
+	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
+	shell_print(ctx_shell, "PER_ADV_SYNC[%u]: [DEVICE]: %s synced, "
+		    "Interval %u, Accuracy %u, PHY %u",
+		    bt_le_per_adv_sync_get_index(sync), le_addr,
+		    info->interval, info->clock_accuracy, info->phy);
+}
+
+static void per_adv_sync_terminated_cb(
+	struct bt_le_per_adv_sync *sync,
+	const struct bt_le_per_adv_sync_term_info *info)
+{
+	char le_addr[BT_ADDR_LE_STR_LEN];
+
+	if (per_adv_sync != sync) {
+		shell_error(ctx_shell, "Invalid per adv sync object");
+		return;
+	}
+
+	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
+	shell_print(ctx_shell, "PER_ADV_SYNC[%u]: [DEVICE]: %s sync terminated",
+		    bt_le_per_adv_sync_get_index(sync), le_addr);
+	per_adv_sync = NULL;
+}
+
+static void per_adv_sync_recv_cb(
+	struct bt_le_per_adv_sync *sync,
+	const struct bt_le_per_adv_sync_recv_info *info,
+	struct net_buf_simple *buf)
+{
+	char le_addr[BT_ADDR_LE_STR_LEN];
+
+	if (per_adv_sync != sync) {
+		shell_error(ctx_shell, "Invalid per adv sync object");
+		return;
+	}
+
+	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
+	shell_print(ctx_shell, "PER_ADV_SYNC[%u]: [DEVICE]: %s, tx_power %i, "
+		    "RSSI %i, CTE %u, data length %u",
+		    bt_le_per_adv_sync_get_index(sync), le_addr, info->tx_power,
+		    info->rssi, info->cte, buf->len);
+}
+
+struct bt_le_per_adv_sync_cb per_adv_sync_cb = {
+	.synced = per_adv_sync_sync_cb,
+	.terminated = per_adv_sync_terminated_cb,
+	.recv = per_adv_sync_recv_cb
+};
+
+static int cmd_per_adv_sync_create(const struct shell *shell, size_t argc,
+				   char *argv[])
+{
+	int err;
+	struct bt_le_per_adv_sync_param create_params = { 0 };
+	u32_t options = 0;
+
+	if (per_adv_sync) {
+		shell_error(shell, "Per adv sync already created");
+		return -ENOEXEC;
+	}
+
+	err = bt_addr_le_from_str(argv[1], argv[2], &create_params.addr);
+	if (err) {
+		shell_error(shell, "Invalid peer address (err %d)", err);
+		return -ENOEXEC;
+	}
+
+	create_params.timeout = 1000; /* 10 seconds */
+	create_params.skip = 10;
+
+	if (argc > 3) {
+		create_params.sid = strtol(argv[3], NULL, 10);
+	}
+
+	if (argc > 4) {
+		create_params.skip = strtol(argv[4], NULL, 10);
+	}
+
+	if (argc > 5) {
+		create_params.timeout = strtol(argv[5], NULL, 10);
+	}
+
+	for (int i = 6; i < argc; i++) {
+		if (!strcmp(argv[i], "aoa")) {
+			options |= LE_PER_SYNC_OPT_DONT_SYNC_AOA;
+		} else if (!strcmp(argv[i], "aod_1us")) {
+			options |= LE_PER_SYNC_OPT_DONT_SYNC_AOD_1US;
+		} else if (!strcmp(argv[i], "aod_2us")) {
+			options |= LE_PER_SYNC_OPT_DONT_SYNC_AOD_2US;
+		} else if (!strcmp(argv[i], "only_cte")) {
+			options |= LE_PER_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT;
+		}
+
+		/* TODO: add support to parse using the per adv list */
+	}
+
+	create_params.options = options;
+
+	err = bt_le_per_adv_sync_create(&create_params, &per_adv_sync_cb,
+					&per_adv_sync);
+	if (err) {
+		shell_error(shell, "Per adv sync failed (%d)", err);
+	} else {
+		shell_print(shell, "Per adv sync pending");
+	}
+
+	return 0;
+}
+
+static int cmd_per_adv_sync_delete(const struct shell *shell, size_t argc,
+				   char *argv[])
+{
+	int err;
+
+	if (!per_adv_sync) {
+		return -EINVAL;
+	}
+
+	err = bt_le_per_adv_sync_delete(per_adv_sync);
+
+	if (err) {
+		shell_error(shell, "Per adv sync delete failed (%d)", err);
+	} else {
+		shell_print(shell, "Per adv sync deleted");
+		per_adv_sync = NULL;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_BT_PER_ADV_SYNC */
 #endif /* CONFIG_BT_EXT_ADV */
 #endif /* CONFIG_BT_BROADCASTER */
 
@@ -2526,6 +2670,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 		      cmd_per_adv_param, 1, 3),
 	SHELL_CMD_ARG(per-adv-data, NULL, "<data>", cmd_per_adv_data, 2, 0),
 #endif
+#if defined(CONFIG_BT_PER_ADV_SYNC)
+	SHELL_CMD_ARG(per-adv-sync-create, NULL,
+		      HELP_ADDR_LE " [<sid>] [<skip>] [<timeout>] [aoa] "
+		      "[aod_1us] [aod_2us] [cte_only]",
+		      cmd_per_adv_sync_create, 2, 7),
+	SHELL_CMD_ARG(per-adv-sync-delete, NULL, "",
+		      cmd_per_adv_sync_delete, 1, 0),
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC) */
 #endif
 #endif /* CONFIG_BT_BROADCASTER */
 #if defined(CONFIG_BT_CONN)

@@ -143,6 +143,16 @@ enum {
 	/* Scan was initiated by this object */
 	BT_PER_ADV_SYNC_SCAN_INITIATED,
 
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+	/* Periodic Advertising sync transfer parameters has been set in the
+	 * controller
+	 */
+	BT_PER_ADV_SYNC_PARAMS_SET,
+
+	/* Periodic advertisement sync info received */
+	BT_PER_ADV_SYNC_RECEIVED,
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
+
 	BT_PER_ADV_SYNC_NUM_FLAGS,
 };
 
@@ -161,6 +171,13 @@ struct bt_le_per_adv_sync {
 
 	/** Advertiser PHY */
 	u8_t phy;
+
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+	/** Connection handle of the connected device to which sync info will be
+	 *  sent
+	 */
+	u16_t conn_handle;
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
 
 	/** Flags */
 	ATOMIC_DEFINE(flags, BT_PER_ADV_SYNC_NUM_FLAGS);

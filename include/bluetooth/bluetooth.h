@@ -881,6 +881,14 @@ struct bt_le_per_adv_sync_recv_info {
 	u8_t cte;
 };
 
+struct bt_le_per_adv_sync_transfer_recv_info {
+	/** Information about synchronization */
+	struct bt_le_per_adv_sync_synced_info sync_info;
+
+	/** Service data provided by the Host of the device sending sync info */
+	u16_t service_data;
+};
+
 struct bt_le_per_adv_sync_cb {
 	/** @brief The periodic advertising has been successfully been synced.
 	 *
@@ -917,6 +925,17 @@ struct bt_le_per_adv_sync_cb {
 	void (*recv)(struct bt_le_per_adv_sync *sync,
 		     const struct bt_le_per_adv_sync_recv_info *info,
 		     struct net_buf_simple *buf);
+
+	/** @brief Periodic advertisement sync info received.
+	 *
+	 *  This callback notifies the application of a received sync info
+	 *  transfered from a connected device.
+	 *
+	 *  @param sync	The advertising set object.
+	 *  @param info	Information about the sync transfer received event.
+	 */
+	void (*info_recv)(struct bt_le_per_adv_sync *sync,
+		     const struct bt_le_per_adv_sync_transfer_recv_info *info);
 };
 
 /** Periodic advertisement sync options */
@@ -931,7 +950,7 @@ enum {
 	 *
 	 * No advertisement reports will be handled until enabled.
 	 */
-	/* TODO: LE_PER_SYNC_OPT_REPORTING_INITIALLY_DISABLED = BIT(1); */
+    LE_PER_SYNC_OPT_REPORTING_INITIALLY_DISABLED = BIT(1),
 
 	/** Sync with Angle of Arrival (AoA) constant tone extension */
 	LE_PER_SYNC_OPT_DONT_SYNC_AOA = BIT(2),
@@ -944,6 +963,9 @@ enum {
 
 	/** Do not sync to packets without a constant tone extension */
 	LE_PER_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT = BIT(5),
+
+	/** Sync to periodic advertising, and notify host when info is received */
+	LE_PER_SYNC_OPT_RECEIVE_SYNC_INFO = BIT(6),
 };
 
 struct bt_le_per_adv_sync_param {
@@ -1011,6 +1033,96 @@ int bt_le_per_adv_sync_create(const struct bt_le_per_adv_sync_param *param,
  *  @return Zero on success or (negative) error code otherwise.
  */
 int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync);
+
+/**
+ * @brief Enable/Disable reports for the periodic advertising train.
+ *
+ *  Enable/Disable reports for the periodic advertising train identified by the
+ *  sync object. sync object must be created first either by create sync in
+ *  case of per scanner, or set sync transfer parameters in case of receiving
+ *  sync transfer info.
+ *
+ *  @param per_adv_sync	The periodic advertising sync object.
+ *  @param enable		Value allowing/disallowing reports for per advertising.
+ *
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_receive_enable(struct bt_le_per_adv_sync *per_adv_sync,
+                  bool enable);
+
+/**
+ * @brief Send synchronization information about the per advertising train
+ *         (Transfer by scanner).
+ *
+ *  Send synchronization information about the per advertising train to a
+ *  connected device identified by connection object. This can be used when
+ *  device is a scanner, and sync object shall be synced first before attempting
+ *  to send sync info.
+ *
+ *  @param conn		    The object of the connection with the device which
+ *                      the sync info shall be sent to.
+ *  @param service_data	Value provided to identify the periodic advertising
+ *                      train to the peer device.
+ *  @param per_adv_sync	The periodic advertising sync object.
+ *
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_transfer(struct bt_conn *conn, u16_t service_data,
+                  struct bt_le_per_adv_sync *per_adv_sync);
+
+/**
+ * @brief Send synchronization information about the per advertising train
+ *         (Transfer by advertiser).
+ *
+ *  Send synchronization information about the per advertising train to a
+ *  connected device identified by connection object. This can be used when
+ *  device is an advertiser, and the periodic advertising shall be enabled for
+ *  the advertising set, before attempting to send sync info.
+ *
+ *  @param conn		    The object of the connection with the device which
+ *                      the sync info shall be sent to.
+ *  @param service_data	Value provided to identify the periodic advertising
+ *                      train to the peer device.
+ *  @param adv	        Advertising set object.
+ *
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_info_transfer(struct bt_conn *conn, u16_t service_data,
+                  struct bt_le_ext_adv *adv);
+
+/**
+ * @brief Configure the receiving mode of the sync transfer
+ *
+ *  Configure how the controller will process the periodic advertising
+ *  sync info received from a connected device. If it is first time to
+ *  configure for this connection, a new sync object will be created. If it is
+ *  not the first time the old sync object will be reconfigured.
+ *
+ *  @param conn[in]	        The object of the connection with the device which
+ *                          will send the sync info.
+ *  @param param[in]	    Periodic advertisement sync parameters.
+ *  @param cb[in]	        Periodic advertisement callbacks.
+ *  @param out_sync[out]	Periodic advertisement sync object on.
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_sync_transfer_params(struct bt_conn *conn,
+                  const struct bt_le_per_adv_sync_param *param,
+                  const struct bt_le_per_adv_sync_cb *cb,
+                  struct bt_le_per_adv_sync **out_sync);
+
+/**
+ * @brief Set default configuration for the receiving mode of the sync transfer
+ *
+ *  Set the default configuration of how the controller will process the
+ *  periodic advertising sync info received from a connected device.
+ *
+ *  @param param[in]	    Periodic advertisement sync parameters.
+ *  @param cb[in]	        Periodic advertisement callbacks.
+ *  @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_set_default_sync_transfer_params(
+                  const struct bt_le_per_adv_sync_param *param,
+                  const struct bt_le_per_adv_sync_cb *cb);
 
 typedef void bt_le_scan_cb_t(const bt_addr_le_t *addr, s8_t rssi,
 			     u8_t adv_type, struct net_buf_simple *buf);

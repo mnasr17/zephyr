@@ -100,6 +100,9 @@ static struct bt_le_ext_adv adv_pool[CONFIG_BT_EXT_ADV_MAX_ADV_SET];
 #if defined(CONFIG_BT_PER_ADV_SYNC)
 static struct bt_le_per_adv_sync per_adv_sync_pool[CONFIG_BT_PER_ADV_SYNC_MAX];
 static struct bt_le_per_adv_sync *syncing_per_adv_sync;
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+static struct bt_le_per_adv_sync default_per_adv_sync_param;
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
 #endif /* defined(CONFIG_BT_PER_ADV) */
 #endif /* defined(CONFIG_BT_EXT_ADV) */
 
@@ -5020,6 +5023,74 @@ static void le_per_adv_sync_lost(struct net_buf *buf)
 	}
 }
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC) */
+
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+static struct bt_le_per_adv_sync *get_per_adv_sync_by_conn(u16_t conn_handle)
+{
+	for (int i = 0; i < ARRAY_SIZE(per_adv_sync_pool); i++) {
+		if (per_adv_sync_pool[i].conn_handle == conn_handle &&
+		    atomic_test_bit(per_adv_sync_pool[i].flags,
+		    		BT_PER_ADV_SYNC_PARAMS_SET)) {
+			return &per_adv_sync_pool[i];
+		}
+	}
+
+	return NULL;
+}
+
+static struct bt_le_per_adv_sync *per_adv_sync_new(void);
+
+static void le_per_adv_sync_transfer_received(struct net_buf *buf)
+{
+	struct bt_hci_evt_le_per_adv_sync_transfer_received *evt =
+		(struct bt_hci_evt_le_per_adv_sync_transfer_received *)buf->data;
+	struct bt_le_per_adv_sync_transfer_recv_info info;
+	struct bt_le_per_adv_sync *per_adv_sync;
+
+	if (buf->len != sizeof(*evt)) {
+		BT_ERR("Unexpected event size: Was %u expected %u",
+		       buf->len, (u32_t)sizeof(*evt));
+		return;
+	}
+
+	per_adv_sync = get_per_adv_sync_by_conn(evt->conn_handle);
+
+	if (!per_adv_sync) {
+		if (atomic_test_bit(default_per_adv_sync_param.flags,
+				BT_PER_ADV_SYNC_CREATED)) {
+			per_adv_sync = per_adv_sync_new();
+			if (!per_adv_sync) {
+				BT_ERR("No memory for creating new per adv sync");
+				return;
+			}
+			memcpy(per_adv_sync, &default_per_adv_sync_param,
+					sizeof(default_per_adv_sync_param));
+		} else {
+			BT_ERR("Unexpected per adv sync transfer received event");
+		}
+	}
+
+	atomic_set_bit(per_adv_sync->flags, BT_PER_ADV_SYNC_RECEIVED);
+
+	per_adv_sync->conn_handle = evt->conn_handle;
+	per_adv_sync->handle = evt->sync_handle;
+	per_adv_sync->params.sid = evt->sid;
+	per_adv_sync->params.addr = evt->adv_addr;
+	per_adv_sync->phy = evt->phy;
+	per_adv_sync->interval = evt->interval;
+	per_adv_sync->clock_accuracy = evt->clock_accuracy;
+
+	info.service_data = evt->service_data;
+	info.sync_info.addr = evt->adv_addr;
+	info.sync_info.interval = evt->interval;
+	info.sync_info.clock_accuracy = evt->clock_accuracy;
+	info.sync_info.phy = evt->phy;
+
+	if (per_adv_sync->cb && per_adv_sync->cb->info_recv) {
+		per_adv_sync->cb->info_recv(per_adv_sync, &info);
+	}
+}
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
 #endif /* defined(CONFIG_BT_EXT_ADV) */
 
 static void le_adv_report(struct net_buf *buf)
@@ -5292,6 +5363,11 @@ static const struct event_handler meta_events[] = {
 	EVENT_HANDLER(BT_HCI_EVT_LE_PER_ADV_SYNC_LOST, le_per_adv_sync_lost,
 		      sizeof(struct bt_hci_evt_le_per_adv_sync_lost)),
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC) */
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+	EVENT_HANDLER(BT_HCI_EVT_LE_PER_ADV_SYNC_TRANSFER_RECEIVED,
+			  le_per_adv_sync_transfer_received,
+			  sizeof(struct bt_hci_evt_le_per_adv_sync_transfer_received)),
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
 #endif /* defined(CONFIG_BT_EXT_ADV) */
 };
 
@@ -5717,6 +5793,9 @@ static int le_set_event_mask(void)
 			mask |= BT_EVT_MASK_LE_PER_ADV_SYNC_ESTABLISHED;
 			mask |= BT_EVT_MASK_LE_PER_ADVERTISING_REPORT;
 			mask |= BT_EVT_MASK_LE_PER_ADV_SYNC_LOST;
+		}
+		if (IS_ENABLED(CONFIG_BT_PER_ADV_SYNC_TRANSFER)) {
+			mask |= BT_EVT_MASK_LE_PER_ADV_SYNC_TRANSFER_RECEIVED;
 		}
 	}
 
@@ -7587,6 +7666,283 @@ int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync)
 	return err;
 }
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC) */
+
+#if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER)
+int bt_le_per_adv_set_receive_enable(struct bt_le_per_adv_sync *per_adv_sync,
+                  bool enable)
+{
+	struct bt_hci_cp_le_set_per_adv_receive_enable *cp;
+	struct net_buf *buf;
+	int err;
+
+	if (!(atomic_test_bit(per_adv_sync->flags, BT_PER_ADV_SYNC_SYNCED) ||
+			atomic_test_bit(per_adv_sync->flags, BT_PER_ADV_SYNC_RECEIVED))) {
+		return -EINVAL;
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PER_ADV_RECEIVE_ENABLE,
+                  sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->sync_handle = per_adv_sync->handle;
+	cp->enable = enable ? 1 : 0;
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_PER_ADV_RECEIVE_ENABLE, buf,
+                  NULL);
+	if (err) {
+		return err;
+	}
+
+	return 0;
+}
+
+int bt_le_per_adv_sync_transfer(struct bt_conn *conn, u16_t service_data,
+                  struct bt_le_per_adv_sync *per_adv_sync)
+{
+	struct bt_hci_cp_le_per_adv_sync_transfer *cp;
+	struct bt_hci_rp_le_per_adv_sync_transfer *rp;
+	struct net_buf *buf;
+	struct net_buf *rsp;
+	int err;
+
+	/* per advertisement must be in sync as this is a transfer by scanner */
+	if (!atomic_test_bit(per_adv_sync->flags, BT_PER_ADV_SYNC_SYNCED)) {
+		return -EINVAL;
+	}
+
+	if (conn->state != BT_CONN_CONNECTED) {
+		return -ENOTCONN;
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_PER_ADV_SYNC_TRANSFER, sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->conn_handle = conn->handle;
+	cp->service_data = service_data;
+	cp->sync_handle = per_adv_sync->handle;
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_PER_ADV_SYNC_TRANSFER, buf, &rsp);
+	if (err) {
+		return err;
+	}
+
+	rp = (void *)rsp->data;
+	/* TODO use connection handle in the command return parameters */
+	net_buf_unref(rsp);
+
+	return 0;
+}
+
+int bt_le_per_adv_set_info_transfer(struct bt_conn *conn, u16_t service_data,
+                  struct bt_le_ext_adv *adv)
+{
+	struct bt_hci_cp_le_per_adv_set_info_transfer *cp;
+	struct bt_hci_rp_le_per_adv_set_info_transfer *rp;
+	struct net_buf *buf;
+	struct net_buf *rsp;
+	int err;
+
+	if (!atomic_test_bit(adv->flags, BT_PER_ADV_ENABLED)) {
+		return -EINVAL;
+	}
+
+	if (conn->state != BT_CONN_CONNECTED) {
+		return -ENOTCONN;
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_PER_ADV_SET_INFO_TRANSFER,
+                  sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->conn_handle = conn->handle;
+	cp->service_data = service_data;
+	cp->adv_handle = adv->handle;
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_PER_ADV_SET_INFO_TRANSFER, buf,
+                  &rsp);
+	if (err) {
+		return err;
+	}
+
+	rp = (void *)rsp->data;
+	/* TODO use connection handle in the command return parameters */
+	net_buf_unref(rsp);
+
+	return 0;
+}
+
+static u8_t get_sync_transfer_mode(u32_t options)
+{
+	if (options & LE_PER_SYNC_OPT_RECEIVE_SYNC_INFO) {
+		if (options & LE_PER_SYNC_OPT_REPORTING_INITIALLY_DISABLED) {
+			return BT_LE_PER_ADV_SYNC_REPORTS_DISABLED;
+		} else {
+			return BT_LE_PER_ADV_SYNC_REPORTS_ENABLED;
+		}
+	} else {
+		return BT_LE_PER_ADV_NO_SYNC;
+	}
+}
+
+int bt_le_per_adv_set_sync_transfer_params(struct bt_conn *conn,
+                  const struct bt_le_per_adv_sync_param *param,
+                  const struct bt_le_per_adv_sync_cb *cb,
+                  struct bt_le_per_adv_sync **out_sync)
+{
+	struct bt_hci_cp_le_set_per_adv_sync_transfer_params *cp;
+	struct bt_hci_rp_le_set_per_adv_sync_transfer_params *rp;
+	struct bt_le_per_adv_sync *per_adv_sync;
+	struct net_buf *buf;
+	struct net_buf *rsp;
+	int err;
+
+	if (conn->state != BT_CONN_CONNECTED) {
+		return -ENOTCONN;
+	}
+
+	/* If sync transfer parameters is already set before for this connection */
+	per_adv_sync = get_per_adv_sync_by_conn(conn->handle);
+
+	if (!per_adv_sync) {
+		per_adv_sync = per_adv_sync_new();
+		if (!per_adv_sync) {
+			return -ENOMEM;
+		}
+	}
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_PER_ADV_SYNC_TRANSFER_PARAMS,
+                  sizeof(*cp));
+	if (!buf) {
+		if (!atomic_test_bit(per_adv_sync->flags,
+				BT_PER_ADV_SYNC_PARAMS_SET)) {
+			per_adv_sync_delete(per_adv_sync);
+		}
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->conn_handle  = conn->handle;
+	cp->mode         = get_sync_transfer_mode(param->options);
+	cp->skip         = param->skip;
+	cp->sync_timeout = param->timeout;
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOA) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOA;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOD_1US) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOD_1US;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOD_2US) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOD_2US;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_ONLY_CTE;
+	}
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_PER_ADV_SYNC_TRANSFER_PARAMS,
+                  buf, &rsp);
+	if (err) {
+		if (!atomic_test_bit(per_adv_sync->flags,
+				BT_PER_ADV_SYNC_PARAMS_SET)) {
+			per_adv_sync_delete(per_adv_sync);
+		}
+		return err;
+	}
+
+	rp = (void *)rsp->data;
+	/* TODO use connection handle in command return parameters */
+	net_buf_unref(rsp);
+
+	per_adv_sync->params.options = param->options;
+	per_adv_sync->params.skip    = param->skip;
+	per_adv_sync->params.timeout = param->timeout;
+
+	per_adv_sync->cb = cb;
+	per_adv_sync->conn_handle = conn->handle;
+	atomic_set_bit(per_adv_sync->flags, BT_PER_ADV_SYNC_PARAMS_SET);
+
+	*out_sync = per_adv_sync;
+
+	return 0;
+}
+
+int bt_le_per_adv_set_default_sync_transfer_params(
+                  const struct bt_le_per_adv_sync_param *param,
+                  const struct bt_le_per_adv_sync_cb *cb)
+{
+	struct bt_hci_cp_le_set_default_per_adv_sync_transfer_params *cp;
+	struct net_buf *buf;
+	int err;
+
+	buf = bt_hci_cmd_create(
+                  BT_HCI_OP_LE_SET_DEFAULT_PER_ADV_SYNC_TRANSFER_PARAMS,
+                  sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	(void)memset(cp, 0, sizeof(*cp));
+
+	cp->mode         = get_sync_transfer_mode(param->options);
+	cp->skip         = param->skip;
+	cp->sync_timeout = param->timeout;
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOA) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOA;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOD_1US) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOD_1US;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_DONT_SYNC_AOD_2US) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_NO_AOD_2US;
+	}
+
+	if (param->options & LE_PER_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT) {
+		cp->cte_type |= BT_HCI_LE_PER_ADV_CREATE_SYNC_CTE_TYPE_ONLY_CTE;
+	}
+
+	err = bt_hci_cmd_send_sync(
+                  BT_HCI_OP_LE_SET_DEFAULT_PER_ADV_SYNC_TRANSFER_PARAMS, buf,
+				  NULL);
+	if (err) {
+		return err;
+	}
+
+	default_per_adv_sync_param.params.options = param->options;
+	default_per_adv_sync_param.params.skip    = param->skip;
+	default_per_adv_sync_param.params.timeout = param->timeout;
+	default_per_adv_sync_param.cb = cb;
+
+	atomic_set_bit(default_per_adv_sync_param.flags, BT_PER_ADV_SYNC_CREATED);
+	atomic_set_bit(default_per_adv_sync_param.flags,
+			BT_PER_ADV_SYNC_PARAMS_SET);
+
+	return 0;
+}
+#endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER) */
 
 static bool valid_adv_ext_param(const struct bt_le_adv_param *param)
 {

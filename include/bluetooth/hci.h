@@ -1267,6 +1267,60 @@ struct bt_hci_cp_le_set_privacy_mode {
 	u8_t         mode;
 } __packed;
 
+#define BT_HCI_OP_LE_SET_PER_ADV_RECEIVE_ENABLE BT_OP(BT_OGF_LE, 0x0059)
+struct bt_hci_cp_le_set_per_adv_receive_enable {
+	u16_t sync_handle;
+	u8_t  enable;
+} __packed;
+
+#define BT_HCI_OP_LE_PER_ADV_SYNC_TRANSFER      BT_OP(BT_OGF_LE, 0x005a)
+struct bt_hci_cp_le_per_adv_sync_transfer {
+	u16_t conn_handle;
+	u16_t service_data;
+	u16_t sync_handle;
+} __packed;
+struct bt_hci_rp_le_per_adv_sync_transfer {
+	u8_t  status;
+	u16_t conn_handle;
+} __packed;
+
+#define BT_HCI_OP_LE_PER_ADV_SET_INFO_TRANSFER  BT_OP(BT_OGF_LE, 0x005b)
+struct bt_hci_cp_le_per_adv_set_info_transfer {
+	u16_t conn_handle;
+	u16_t service_data;
+	u8_t  adv_handle;
+} __packed;
+struct bt_hci_rp_le_per_adv_set_info_transfer {
+	u8_t  status;
+	u16_t conn_handle;
+} __packed;
+
+#define BT_LE_PER_ADV_NO_SYNC             		0x00
+#define BT_LE_PER_ADV_SYNC_REPORTS_DISABLED     0x01
+#define BT_LE_PER_ADV_SYNC_REPORTS_ENABLED      0x02
+
+#define BT_HCI_OP_LE_SET_PER_ADV_SYNC_TRANSFER_PARAMS BT_OP(BT_OGF_LE, 0x005c)
+struct bt_hci_cp_le_set_per_adv_sync_transfer_params {
+	u16_t conn_handle;
+    u8_t  mode;
+    u16_t skip;
+    u16_t sync_timeout;
+    u8_t  cte_type;
+} __packed;
+struct bt_hci_rp_le_set_per_adv_sync_transfer_params {
+	u8_t  status;
+	u16_t conn_handle;
+} __packed;
+
+#define BT_HCI_OP_LE_SET_DEFAULT_PER_ADV_SYNC_TRANSFER_PARAMS \
+                                                BT_OP(BT_OGF_LE, 0x005d)
+struct bt_hci_cp_le_set_default_per_adv_sync_transfer_params {
+    u8_t  mode;
+    u16_t skip;
+    u16_t sync_timeout;
+    u8_t  cte_type;
+} __packed;
+
 /* Event definitions */
 
 #define BT_HCI_EVT_UNKNOWN                      0x00
@@ -1671,6 +1725,19 @@ struct bt_hci_evt_le_per_adv_sync_lost {
 	u16_t handle;
 } __packed;
 
+#define BT_HCI_EVT_LE_PER_ADV_SYNC_TRANSFER_RECEIVED 0x18
+struct bt_hci_evt_le_per_adv_sync_transfer_received {
+	u8_t         status;
+	u16_t        conn_handle;
+	u16_t        service_data;
+	u16_t        sync_handle;
+	u8_t         sid;
+	bt_addr_le_t adv_addr;
+	u8_t         phy;
+	u16_t        interval;
+	u8_t         clock_accuracy;
+} __packed;
+
 #define BT_HCI_EVT_LE_SCAN_TIMEOUT              0x11
 
 #define BT_HCI_EVT_LE_ADV_SET_TERMINATED        0x12
@@ -1775,6 +1842,7 @@ struct bt_hci_evt_le_chan_sel_algo {
 #define BT_EVT_MASK_LE_ADV_SET_TERMINATED        BT_EVT_BIT(17)
 #define BT_EVT_MASK_LE_SCAN_REQ_RECEIVED         BT_EVT_BIT(18)
 #define BT_EVT_MASK_LE_CHAN_SEL_ALGO             BT_EVT_BIT(19)
+#define BT_EVT_MASK_LE_PER_ADV_SYNC_TRANSFER_RECEIVED BT_EVT_BIT(23)
 
 /** Allocate a HCI command buffer.
   *
